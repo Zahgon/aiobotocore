@@ -35,7 +35,6 @@ class AioDeferredRefreshableToken(DeferredRefreshableToken):
         self._refresh_using = refresh_using
         self.method = method
 
-        # The frozen token is protected by this lock
         self._refresh_lock = asyncio.Lock()
         self._frozen_token = None
         self._next_refresh = None
@@ -45,20 +44,16 @@ class AioDeferredRefreshableToken(DeferredRefreshableToken):
         return self._frozen_token
 
     async def _refresh(self):
-        # If we don't need to refresh just return
         refresh_type = self._should_refresh()
         if not refresh_type:
             return None
 
-        # Block for refresh if we're in the mandatory refresh window
         block_for_refresh = refresh_type == "mandatory"
         if block_for_refresh or not self._refresh_lock.locked():
             async with self._refresh_lock:
                 await self._protected_refresh()
 
     async def _protected_refresh(self):
-        # This should only be called after acquiring the refresh lock
-        # Another task may have already refreshed, double check refresh
         refresh_type = self._should_refresh()
         if not refresh_type:
             return None
@@ -74,11 +69,9 @@ class AioDeferredRefreshableToken(DeferredRefreshableToken):
                 exc_info=True,
             )
             if refresh_type == "mandatory":
-                # This refresh was mandatory, error must be propagated back
                 raise
 
         if self._is_expired():
-            # Fresh credentials should never be expired
             raise TokenRetrievalError(
                 provider=self.method,
                 error_msg="Token has expired and refresh failed",
@@ -87,82 +80,17 @@ class AioDeferredRefreshableToken(DeferredRefreshableToken):
 
 class AioSSOTokenProvider(SSOTokenProvider):
     async def _attempt_create_token(self, token):
-        async with self._client as client:
-            response = await client.create_token(
-                grantType=self._GRANT_TYPE,
-                clientId=token["clientId"],
-                clientSecret=token["clientSecret"],
-                refreshToken=token["refreshToken"],
-            )
-        expires_in = timedelta(seconds=response["expiresIn"])
-        new_token = {
-            "startUrl": self._sso_config["sso_start_url"],
-            "region": self._sso_config["sso_region"],
-            "accessToken": response["accessToken"],
-            "expiresAt": self._now() + expires_in,
-            # Cache the registration alongside the token
-            "clientId": token["clientId"],
-            "clientSecret": token["clientSecret"],
-            "registrationExpiresAt": token["registrationExpiresAt"],
-        }
-        if "refreshToken" in response:
-            new_token["refreshToken"] = response["refreshToken"]
-        logger.info("SSO Token refresh succeeded")
-        return new_token
+        pass
 
     async def _refresh_access_token(self, token):
-        keys = (
-            "refreshToken",
-            "clientId",
-            "clientSecret",
-            "registrationExpiresAt",
-        )
-        missing_keys = [k for k in keys if k not in token]
-        if missing_keys:
-            msg = f"Unable to refresh SSO token: missing keys: {missing_keys}"
-            logger.info(msg)
-            return None
-
-        expiry = dateutil.parser.parse(token["registrationExpiresAt"])
-        if total_seconds(expiry - self._now()) <= 0:
-            logger.info("SSO token registration expired at %s", expiry)
-            return None
-
-        try:
-            return await self._attempt_create_token(token)
-        except ClientError:
-            logger.warning("SSO token refresh attempt failed", exc_info=True)
-            return None
+        pass
 
     async def _refresher(self):
-        start_url = self._sso_config["sso_start_url"]
-        session_name = self._sso_config["session_name"]
-        logger.info("Loading cached SSO token for %s", session_name)
-        token_dict = self._token_loader(start_url, session_name=session_name)
-        expiration = dateutil.parser.parse(token_dict["expiresAt"])
-        logger.debug("Cached SSO token expires at %s", expiration)
-
-        remaining = total_seconds(expiration - self._now())
-        if remaining < self._REFRESH_WINDOW:
-            new_token_dict = await self._refresh_access_token(token_dict)
-            if new_token_dict is not None:
-                token_dict = new_token_dict
-                expiration = token_dict["expiresAt"]
-                self._token_loader.save_token(
-                    start_url, token_dict, session_name=session_name
-                )
-
-        return FrozenAuthToken(
-            token_dict["accessToken"], expiration=expiration
-        )
+        pass
 
     @property
     def _client(self):
-        config = AioConfig(
-            region_name=self._sso_config["sso_region"],
-            signature_version=UNSIGNED,
-        )
-        return create_nested_client(self._session, "sso-oidc", config=config)
+        pass
 
     def load_token(self, **kwargs):
         if self._sso_config is None:

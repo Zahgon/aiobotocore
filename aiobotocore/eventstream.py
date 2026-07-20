@@ -20,21 +20,10 @@ class AioEventStream(EventStream):
                 yield parsed_event
 
     async def _create_raw_event_generator(self):
-        event_stream_buffer = EventStreamBuffer()
-        async for chunk, _ in self._raw_stream.content.iter_chunks():
-            event_stream_buffer.add_data(chunk)
-            for event in event_stream_buffer:
-                yield event  # unfortunately no yield from async func support
+        pass
 
     async def _parse_event(self, event):
-        response_dict = event.to_response_dict()
-        parsed_response = await self._parser.parse(
-            response_dict, self._output_shape
-        )
-        if response_dict['status_code'] == 200:
-            return parsed_response
-        else:
-            raise EventStreamError(parsed_response, self._operation_name)
+        pass
 
     async def get_initial_response(self):
         try:
@@ -48,4 +37,3 @@ class AioEventStream(EventStream):
             pass
         raise NoInitialResponseError()
 
-    # self._raw_stream.close() is sync so no override needed

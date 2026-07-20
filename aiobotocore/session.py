@@ -40,7 +40,6 @@ class ClientCreatorContext:
 
 
 class AioSession(_SyncSession):
-    # noinspection PyMissingConstructor
     def __init__(
         self,
         session_vars=None,
@@ -58,46 +57,24 @@ class AioSession(_SyncSession):
         self._set_user_agent_for_session()
 
     def _set_user_agent_for_session(self):
-        # Mimic approach taken by AWS's aws-cli project
-        # https://github.com/aws/aws-cli/blob/b862122c76a3f280ff34e93c9dcafaf964e7bf9b/awscli/clidriver.py#L84
-
-        self.user_agent_name = 'aiobotocore'
-        self.user_agent_version = __version__
-        self.user_agent_extra = f'botocore/{botocore_version}'
+        pass
 
     def _create_token_resolver(self):
-        return create_token_resolver(self)
+        pass
 
     def _create_credential_resolver(self):
-        return create_credential_resolver(
-            self, region_name=self._last_client_region_used
-        )
+        pass
 
     def _register_smart_defaults_factory(self):
-        def create_smart_defaults_factory():
-            default_config_resolver = self._get_internal_component(
-                'default_config_resolver'
-            )
-            imds_region_provider = AioIMDSRegionProvider(session=self)
-            return AioSmartDefaultsConfigStoreFactory(
-                default_config_resolver, imds_region_provider
-            )
-
-        self._internal_components.lazy_register_component(
-            'smart_defaults_factory', create_smart_defaults_factory
-        )
+        pass
 
     def _register_response_parser_factory(self):
-        self._components.register_component(
-            'response_parser_factory', AioResponseParserFactory()
-        )
+        pass
 
     def set_credentials(
         self, access_key, secret_key, token=None, account_id=None
     ):
-        self._credentials = AioCredentials(
-            access_key, secret_key, token, account_id=account_id
-        )
+        pass
 
     async def get_credentials(self):
         if self._credentials is None:
@@ -107,70 +84,17 @@ class AioSession(_SyncSession):
         return self._credentials
 
     async def get_service_model(self, service_name, api_version=None):
-        service_description = await self.get_service_data(
-            service_name, api_version
-        )
-        return ServiceModel(service_description, service_name=service_name)
+        pass
 
     async def get_service_data(self, service_name, api_version=None):
-        """
-        Retrieve the fully merged data associated with a service.
-        """
-        data_path = service_name
-        service_data = self.get_component('data_loader').load_service_model(
-            data_path, type_name='service-2', api_version=api_version
-        )
-        service_id = EVENT_ALIASES.get(service_name, service_name)
-        await self._events.emit(
-            f'service-data-loaded.{service_id}',
-            service_data=service_data,
-            service_name=service_name,
-            session=self,
-        )
-        return service_data
+        pass
 
     def warm_up_loader_caches(
         self,
         service_name: str | None = None,
         api_version: str | None = None,
     ):
-        loader = self.get_component('data_loader')
-
-        # load generic data
-        loader.load_data_with_path('_retry')
-        loader.load_data_with_path('endpoints')
-        loader.load_data_with_path('partitions')
-        loader.load_data_with_path('sdk-default-configuration')
-        services = loader.list_available_services(type_name='service-2')
-
-        # load service-specific data
-        for service_name in (service_name,) if service_name else services:
-            # from session.py
-            loader.load_service_model(
-                service_name, type_name='service-2', api_version=api_version
-            )
-            with contextlib.suppress(UnknownServiceError):
-                loader.load_service_model(
-                    service_name, 'paginators-1', api_version
-                )
-            with contextlib.suppress(UnknownServiceError):
-                loader.load_service_model(
-                    service_name, 'waiters-2', api_version
-                )
-
-            # from client.py
-            loader.load_service_model(
-                service_name, 'service-2', api_version=api_version
-            )
-            loader.load_service_model(
-                service_name, 'endpoint-rule-set-1', api_version=api_version
-            )
-
-            # from docs/service.py
-            with contextlib.suppress(UnknownServiceError):
-                loader.load_service_model(
-                    service_name, 'examples-1', api_version
-                )
+        pass
 
     def create_client(self, *args, **kwargs):
         return ClientCreatorContext(self._create_client(*args, **kwargs))
@@ -191,19 +115,13 @@ class AioSession(_SyncSession):
         aws_account_id=None,
     ):
         default_client_config = self.get_default_client_config()
-        # If a config is provided and a default config is set, then
-        # use the config resulting from merging the two.
         if config is not None and default_client_config is not None:
             config = default_client_config.merge(config)
-        # If a config was not provided then use the default
-        # client config from the session
         elif default_client_config is not None:
             config = default_client_config
 
         region_name = self._resolve_region_name(region_name, config)
 
-        # Figure out the verify value base on the various
-        # configuration options.
         if verify is None:
             verify = self.get_config_variable('ca_bundle')
 
@@ -256,9 +174,6 @@ class AioSession(_SyncSession):
         exceptions_factory = self._get_internal_component('exceptions_factory')
         config_store = copy.copy(self.get_component('config_store'))
         user_agent_creator = self.get_component('user_agent_creator')
-        # Session configuration values for the user agent string are applied
-        # just before each client creation because they may have been modified
-        # at any time between session creation and client creation.
         user_agent_creator.set_session_config(
             session_user_agent_name=self.user_agent_name,
             session_user_agent_version=self.user_agent_version,
@@ -313,19 +228,7 @@ class AioSession(_SyncSession):
     async def get_available_regions(
         self, service_name, partition_name='aws', allow_non_regional=False
     ):
-        resolver = self._get_internal_component('endpoint_resolver')
-        results = []
-        try:
-            service_data = await self.get_service_data(service_name)
-            endpoint_prefix = service_data['metadata'].get(
-                'endpointPrefix', service_name
-            )
-            results = resolver.get_available_endpoints(
-                endpoint_prefix, partition_name, allow_non_regional
-            )
-        except UnknownServiceError:
-            pass
-        return results
+        pass
 
 
 def get_session(env_vars=None):

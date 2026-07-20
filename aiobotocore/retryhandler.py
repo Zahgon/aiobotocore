@@ -49,7 +49,6 @@ def create_checker_from_retry_config(config, operation_name=None):
             if retry_exception is not None:
                 retryable_exceptions.extend(retry_exception)
     if len(checkers) == 1:
-        # Don't need to use a MultiChecker
         return AioMaxAttemptsDecorator(checkers[0], max_attempts=max_attempts)
     else:
         multi_checker = AioMultiChecker(checkers)
@@ -82,33 +81,13 @@ def _create_single_response_checker(response):
     elif 'crc32body' in response:
         checker = AioCRC32Checker(header=response['crc32body'])
     else:
-        # TODO: send a signal.
         raise ValueError("Unknown retry policy")
     return checker
 
 
 class AioRetryHandler(RetryHandler):
     async def _call(self, attempts, response, caught_exception, **kwargs):
-        """Handler for a retry.
-
-        Intended to be hooked up to an event handler (hence the **kwargs),
-        this will process retries appropriately.
-
-        """
-        checker_kwargs = {
-            'attempt_number': attempts,
-            'response': response,
-            'caught_exception': caught_exception,
-        }
-        if isinstance(self._checker, MaxAttemptsDecorator):
-            retries_context = kwargs['request_dict']['context'].get('retries')
-            checker_kwargs.update({'retries_context': retries_context})
-
-        if await resolve_awaitable(self._checker(**checker_kwargs)):
-            result = self._action(attempts=attempts)
-            logger.debug("Retry needed, action of: %s", result)
-            return result
-        logger.debug("No retry needed.")
+        pass
 
     def __call__(self, *args, **kwargs):
         return self._call(*args, **kwargs)  # return awaitable
@@ -118,64 +97,18 @@ class AioMaxAttemptsDecorator(MaxAttemptsDecorator):
     async def _call(
         self, attempt_number, response, caught_exception, retries_context
     ):
-        if retries_context:
-            retries_context['max'] = max(
-                retries_context.get('max', 0), self._max_attempts
-            )
-
-        should_retry = await self._should_retry(
-            attempt_number, response, caught_exception
-        )
-        if should_retry:
-            if attempt_number >= self._max_attempts:
-                # explicitly set MaxAttemptsReached
-                if response is not None and 'ResponseMetadata' in response[1]:
-                    response[1]['ResponseMetadata']['MaxAttemptsReached'] = (
-                        True
-                    )
-                logger.debug(
-                    "Reached the maximum number of retry attempts: %s",
-                    attempt_number,
-                )
-                return False
-            else:
-                return should_retry
-        else:
-            return False
+        pass
 
     def __call__(self, *args, **kwargs):
         return self._call(*args, **kwargs)
 
     async def _should_retry(self, attempt_number, response, caught_exception):
-        if self._retryable_exceptions and attempt_number < self._max_attempts:
-            try:
-                return await resolve_awaitable(
-                    self._checker(attempt_number, response, caught_exception)
-                )
-            except self._retryable_exceptions as e:
-                logger.debug(
-                    "retry needed, retryable exception caught: %s",
-                    e,
-                    exc_info=True,
-                )
-                return True
-        else:
-            # If we've exceeded the max attempts we just let the exception
-            # propagate if one has occurred.
-            return await resolve_awaitable(
-                self._checker(attempt_number, response, caught_exception)
-            )
+        pass
 
 
 class AioMultiChecker(MultiChecker):
     async def _call(self, attempt_number, response, caught_exception):
-        for checker in self._checkers:
-            checker_response = await resolve_awaitable(
-                checker(attempt_number, response, caught_exception)
-            )
-            if checker_response:
-                return checker_response
-        return False
+        pass
 
     def __call__(self, *args, **kwargs):
         return self._call(*args, **kwargs)
@@ -183,38 +116,10 @@ class AioMultiChecker(MultiChecker):
 
 class AioCRC32Checker(CRC32Checker):
     async def _call(self, attempt_number, response, caught_exception):
-        if response is not None:
-            return await self._check_response(attempt_number, response)
-        elif caught_exception is not None:
-            return self._check_caught_exception(
-                attempt_number, caught_exception
-            )
-        else:
-            raise ValueError("Both response and caught_exception are None.")
+        pass
 
     def __call__(self, *args, **kwargs):
         return self._call(*args, **kwargs)
 
     async def _check_response(self, attempt_number, response):
-        http_response = response[0]
-        expected_crc = http_response.headers.get(self._header_name)
-        if expected_crc is None:
-            logger.debug(
-                "crc32 check skipped, the %s header is not "
-                "in the http response.",
-                self._header_name,
-            )
-        else:
-            actual_crc32 = crc32(await response[0].content) & 0xFFFFFFFF
-            if not actual_crc32 == int(expected_crc):
-                logger.debug(
-                    "retry needed: crc32 check failed, expected != actual: "
-                    "%s != %s",
-                    int(expected_crc),
-                    actual_crc32,
-                )
-                raise ChecksumError(
-                    checksum_type='crc32',
-                    expected_checksum=int(expected_crc),
-                    actual_checksum=actual_crc32,
-                )
+        pass

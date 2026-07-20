@@ -28,13 +28,6 @@ async def start_as_current_context(ctx=None):
 
 def with_current_context(hook=None):
     def decorator(func):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            async with start_as_current_context():
-                if hook:
-                    await resolve_awaitable(hook())
-                return await func(*args, **kwargs)
-
-        return wrapper
+        pass
 
     return decorator

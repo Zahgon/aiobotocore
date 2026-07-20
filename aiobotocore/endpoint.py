@@ -93,71 +93,12 @@ class AioEndpoint(Endpoint):
         await self.http_session.close()
 
     async def create_request(self, params, operation_model=None):
-        request = create_request_object(params)
-        if operation_model:
-            request.stream_output = any(
-                [
-                    operation_model.has_streaming_output,
-                    operation_model.has_event_stream_output,
-                ]
-            )
-            service_id = operation_model.service_model.service_id.hyphenize()
-            event_name = f'request-created.{service_id}.{operation_model.name}'
-            await self._event_emitter.emit(
-                event_name,
-                request=request,
-                operation_name=operation_model.name,
-            )
-        prepared_request = self.prepare_request(request)
-        return prepared_request
+        pass
 
     async def _send_request(self, request_dict, operation_model):
-        attempts = 1
-        context = request_dict['context']
-        self._update_retries_context(context, attempts)
-        request = await self.create_request(request_dict, operation_model)
-        success_response, exception = await self._get_response(
-            request, operation_model, context
-        )
-        while await self._needs_retry(
-            attempts,
-            operation_model,
-            request_dict,
-            success_response,
-            exception,
-        ):
-            attempts += 1
-            self._update_retries_context(context, attempts, success_response)
-            # If there is a stream associated with the request, we need
-            # to reset it before attempting to send the request again.
-            # This will ensure that we resend the entire contents of the
-            # body.
-            request.reset_stream()
-            # Create a new request when retried (including a new signature).
-            request = await self.create_request(request_dict, operation_model)
-            success_response, exception = await self._get_response(
-                request, operation_model, context
-            )
-        if (
-            success_response is not None
-            and 'ResponseMetadata' in success_response[1]
-        ):
-            # We want to share num retries, not num attempts.
-            total_retries = attempts - 1
-            success_response[1]['ResponseMetadata']['RetryAttempts'] = (
-                total_retries
-            )
-        if exception is not None:
-            raise exception
-        else:
-            return success_response
+        pass
 
     async def _get_response(self, request, operation_model, context):
-        # This will return a tuple of (success_response, exception)
-        # and success_response is itself a tuple of
-        # (http_response, parsed_dict).
-        # If an exception occurs then the success_response is None.
-        # If no exception occurs then exception is None.
         success_response, exception = await self._do_get_response(
             request, operation_model, context
         )
@@ -209,7 +150,6 @@ class AioEndpoint(Endpoint):
             )
             return (None, e)
 
-        # This returns the http_response and the parsed_data.
         response_dict = await convert_to_response_dict(
             http_response, operation_model
         )
@@ -265,10 +205,8 @@ class AioEndpoint(Endpoint):
         if error_shape is None:
             return
         modeled_parse = await parser.parse(response_dict, error_shape)
-        # TODO: avoid naming conflicts with ResponseMetadata and Error
         parsed_response.update(modeled_parse)
 
-    # NOTE: The only line changed here changing time.sleep to asyncio.sleep
     async def _needs_retry(
         self,
         attempts,
@@ -277,29 +215,7 @@ class AioEndpoint(Endpoint):
         response=None,
         caught_exception=None,
     ):
-        service_id = operation_model.service_model.service_id.hyphenize()
-        event_name = f"needs-retry.{service_id}.{operation_model.name}"
-        responses = await self._event_emitter.emit(
-            event_name,
-            response=response,
-            endpoint=self,
-            operation=operation_model,
-            attempts=attempts,
-            caught_exception=caught_exception,
-            request_dict=request_dict,
-        )
-        handler_response = first_non_none_response(responses)
-        if handler_response is None or handler_response is False:
-            return False
-        else:
-            # Request needs to be retried, and we need to sleep
-            # for the specified number of times.
-            logger.debug(
-                "Response received to retry, sleeping for %s seconds",
-                handler_response,
-            )
-            await asyncio.sleep(handler_response)
-            return True
+        pass
 
     async def _send(self, request):
         return await self.http_session.send(request)

@@ -59,8 +59,6 @@ class AIOHTTPSession:
     ):
         self._exit_stack = contextlib.AsyncExitStack()
 
-        # TODO: handle socket_options
-        # keep track of sessions by proxy url (if any)
         self._sessions: dict[str | None, aiohttp.ClientSession] | None = None
         self._verify = verify
         self._proxy_config = ProxyConfiguration(
@@ -94,9 +92,6 @@ class AIOHTTPSession:
         if socket_options is None:
             self._socket_options = []
 
-        # aiohttp handles 100 continue so we shouldn't need AWSHTTP[S]ConnectionPool
-        # it also pools by host so we don't need a manager, and can pass proxy via
-        # request so don't need proxy manager
 
     async def __aenter__(self):
         assert self._sessions is None
@@ -108,71 +103,24 @@ class AIOHTTPSession:
         assert self._sessions is not None, 'Session was never entered'
         self._sessions.clear()
         await self._exit_stack.aclose()
-        # Make _sessions unusable once context is exited
         self._sessions = None
 
     def _get_ssl_context(self):
-        return create_urllib3_context()
+        pass
 
     def _setup_proxy_ssl_context(self, proxy_url):
-        proxies_settings = self._proxy_config.settings
-        proxy_ca_bundle = proxies_settings.get('proxy_ca_bundle')
-        proxy_cert = proxies_settings.get('proxy_client_cert')
-        if proxy_ca_bundle is None and proxy_cert is None:
-            return None
-
-        context = self._get_ssl_context()
-        try:
-            url = parse_url(proxy_url)
-            # urllib3 disables this by default but we need it for proper
-            # proxy tls negotiation when proxy_url is not an IP Address
-            if not _is_ipaddress(url.host):
-                context.check_hostname = True
-            if proxy_ca_bundle is not None:
-                context.load_verify_locations(cafile=proxy_ca_bundle)
-
-            if isinstance(proxy_cert, tuple):
-                context.load_cert_chain(proxy_cert[0], keyfile=proxy_cert[1])
-            elif isinstance(proxy_cert, str):
-                context.load_cert_chain(proxy_cert)
-
-            return context
-        except (OSError, LocationParseError) as e:
-            raise InvalidProxiesConfigError(error=e)
+        pass
 
     def _chunked(self, headers):
         transfer_encoding = headers.get('Transfer-Encoding', '')
         if chunked := transfer_encoding.lower() == 'chunked':
-            # aiohttp wants chunking as a param, and not a header
             del headers['Transfer-Encoding']
         return chunked or None
 
     def _build_ssl_context(self, proxy_url):
-        # Synchronous; only called via asyncio.to_thread when verify is truthy. (#1469)
-        if proxy_url:
-            ssl_context = self._setup_proxy_ssl_context(proxy_url)
-            # TODO: add support for
-            #    proxies_settings.get('proxy_use_forwarding_for_https')
-        else:
-            ssl_context = self._get_ssl_context()
-
-        if ssl_context:
-            if self._cert_file:
-                ssl_context.load_cert_chain(
-                    self._cert_file,
-                    self._key_file,
-                )
-
-            # inline self._setup_ssl_cert
-            ca_certs = get_cert_path(self._verify)
-            if ca_certs:
-                ssl_context.load_verify_locations(ca_certs, None, None)
-
-        return ssl_context
+        pass
 
     async def _create_connector(self, proxy_url):
-        # TCPConnector binds the running loop, so build it here.
-        # Dispatch blocking SSL file I/O to a thread only when verify is truthy. (#1469)
         ssl_context = (
             await asyncio.to_thread(self._build_ssl_context, proxy_url)
             if bool(self._verify)
@@ -214,10 +162,6 @@ class AIOHTTPSession:
             if ensure_boolean(
                 os.environ.get('BOTO_EXPERIMENTAL__ADD_PROXY_HOST_HEADER', '')
             ):
-                # This is currently an "experimental" feature which provides
-                # no guarantees of backwards compatibility. It may be subject
-                # to change or removal in any patch version. Anyone opting in
-                # to this feature should strictly pin botocore.
                 host = urlparse(request.url).hostname
                 proxy_headers['host'] = host
 
@@ -225,7 +169,6 @@ class AIOHTTPSession:
                 (z[0], _text(z[1], encoding='utf-8')) for z in headers.items()
             )
 
-            # https://github.com/boto/botocore/issues/1255
             headers_['Accept-Encoding'] = 'identity'
 
             if isinstance(data, io.IOBase):
@@ -243,10 +186,6 @@ class AIOHTTPSession:
                 proxy_headers=proxy_headers,
             )
 
-            # botocore converts keys to str, so make sure that they are in
-            # the expected case. See detailed discussion here:
-            # https://github.com/aio-libs/aiobotocore/pull/116
-            # aiohttp's CIMultiDict camel cases the headers :(
             headers = {
                 k.decode('utf-8').lower(): v.decode('utf-8')
                 for k, v in response.raw_headers
@@ -257,9 +196,6 @@ class AIOHTTPSession:
             )
 
             if not request.stream_output:
-                # Cause the raw stream to be exhausted immediately. We do it
-                # this way instead of using preload_content because
-                # preload_content will never buffer chunked responses
                 await http_response.content
 
             return http_response

@@ -64,7 +64,6 @@ class AioConfig(botocore.client.Config):
             )
 
     def merge(self, other_config):
-        # Adapted from parent class
         config_options = copy.copy(self._user_provided_options)
         config_options.update(other_config._user_provided_options)
         return AioConfig(self.connector_args, **config_options)
@@ -74,61 +73,4 @@ class AioConfig(botocore.client.Config):
         connector_args: _ConnectorArgs,
         http_session_cls: type[_HttpSessionType],
     ) -> None:
-        for k, v in connector_args.items():
-            # verify_ssl is handled by verify parameter to create_client
-            if k == 'use_dns_cache':
-                if http_session_cls is HttpxSession:
-                    raise ParamValidationError(
-                        report='Httpx does not support dns caching. https://github.com/encode/httpx/discussions/2211'
-                    )
-                if not isinstance(v, bool):
-                    raise ParamValidationError(
-                        report=f'{k} value must be a boolean'
-                    )
-            elif k == 'ttl_dns_cache':
-                if v is not None and not isinstance(v, int):
-                    raise ParamValidationError(
-                        report=f'{k} value must be an int or None'
-                    )
-            elif k in TIMEOUT_ARGS:
-                if v is not None and not isinstance(v, (float, int)):
-                    raise ParamValidationError(
-                        report=f'{k} value must be a float/int or None'
-                    )
-            elif k == 'force_close':
-                if http_session_cls is HttpxSession:
-                    raise ParamValidationError(
-                        report=f'Httpx backend does not currently support {k}.'
-                    )
-                if not isinstance(v, bool):
-                    raise ParamValidationError(
-                        report=f'{k} value must be a boolean'
-                    )
-            # limit is handled by max_pool_connections
-            elif k == 'ssl_context':
-                if not isinstance(v, ssl.SSLContext):
-                    raise ParamValidationError(
-                        report=f'{k} must be an SSLContext instance'
-                    )
-            elif k == "resolver":
-                if http_session_cls is HttpxSession:
-                    raise ParamValidationError(
-                        report=f'Httpx backend does not support {k}.'
-                    )
-                if not isinstance(v, AbstractResolver):
-                    raise ParamValidationError(
-                        report=f'{k} must be an instance of a AbstractResolver'
-                    )
-            elif k == "socket_factory":
-                if http_session_cls is HttpxSession:
-                    raise ParamValidationError(
-                        report=f'Httpx backend does not support {k}.'
-                    )
-                if v is not None and not isinstance(
-                    v, collections.abc.Callable
-                ):
-                    raise ParamValidationError(
-                        report=f'{k} must be a callable'
-                    )
-            else:
-                raise ParamValidationError(report=f'invalid connector_arg:{k}')
+        pass

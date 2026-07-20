@@ -1,13 +1,9 @@
-"""An async reimplementation of the blocking elements from botocore.retries.adaptive."""
 
 import asyncio
 import logging
 
 from botocore.retries import standard, throttling
 
-# The RateClocker from botocore uses a threading.Lock, but in a single-threaded asyncio
-# program, the lock will be acquired then released by the same coroutine without
-# blocking.
 from botocore.retries.adaptive import RateClocker
 
 from . import bucket
@@ -44,13 +40,7 @@ def register_retry_handler(client):
 
 
 class AsyncClientRateLimiter:
-    """An async reimplementation of ClientRateLimiter."""
 
-    # Most of the code here comes directly from botocore. The main change is making the
-    # callbacks async.
-    # This doesn't inherit from the botocore ClientRateLimiter for two reasons:
-    # * the interface is slightly changed (methods are now async)
-    # * we rewrote the entirety of the class anyway
 
     _MAX_RATE_ADJUST_SCALE = 2.0
 
@@ -71,35 +61,7 @@ class AsyncClientRateLimiter:
         self._lock = asyncio.Lock()
 
     async def on_sending_request(self, request, **kwargs):
-        if self._enabled:
-            await self._token_bucket.acquire()
+        pass
 
-    # Hooked up to needs-retry.
     async def on_receiving_response(self, **kwargs):
-        measured_rate = self._rate_clocker.record()
-        timestamp = self._clock.current_time()
-        async with self._lock:
-            if not self._throttling_detector.is_throttling_error(**kwargs):
-                new_rate = self._rate_adjustor.success_received(timestamp)
-            else:
-                if not self._enabled:
-                    rate_to_use = measured_rate
-                else:
-                    rate_to_use = min(
-                        measured_rate, self._token_bucket.max_rate
-                    )
-                new_rate = self._rate_adjustor.error_received(
-                    rate_to_use, timestamp
-                )
-                logger.debug(
-                    "Throttling response received, new send rate: %s "
-                    "measured rate: %s, token bucket capacity "
-                    "available: %s",
-                    new_rate,
-                    measured_rate,
-                    self._token_bucket.available_capacity,
-                )
-                self._enabled = True
-            await self._token_bucket.set_max_rate(
-                min(new_rate, self._MAX_RATE_ADJUST_SCALE * measured_rate)
-            )
+        pass

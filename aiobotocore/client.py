@@ -132,28 +132,6 @@ class AioClientCreator(ClientCreator):
         return cls
 
     def _register_retries(self, client):
-        # botocore retry handlers may block. We add our own implementation here.
-        # botocore provides three implementations:
-        #
-        # 1) standard
-        # This one doesn't block. A threading.Lock is used in quota.RetryQuota,
-        # but it's only used to protect concurrent modifications of internal
-        # state inside multithreaded programs. When running under a single
-        # asyncio thread, this lock will be acquired and released in the same
-        # coroutine, and the coroutine will never block waiting for the lock.
-        # Thus, we don't need to redefine this strategy.
-        #
-        # 2) adaptive
-        # This one blocks when the client is applying self rate limiting.
-        # We override the corresponding definition to replace it with async
-        # objects.
-        #
-        # 3) legacy
-        # This one probably doesn't block.
-        #
-        # The code for this method comes directly from botocore. We could
-        # override `_register_v2_adaptive_retries` only. The override for
-        # `_register_retries` is only included for clarity.
         retry_mode = client.meta.config.retries['mode']
         if retry_mode == 'standard':
             self._register_v2_standard_retries(client)
@@ -174,8 +152,6 @@ class AioClientCreator(ClientCreator):
         standard.register_retry_handler(**kwargs)
 
     def _register_v2_adaptive_retries(self, client):
-        # See comment in `_register_retries`.
-        # Note that this `adaptive` module is an aiobotocore reimplementation.
         adaptive.register_retry_handler(client)
 
     def _register_legacy_retries(self, client):
@@ -183,8 +159,6 @@ class AioClientCreator(ClientCreator):
         service_id = client.meta.service_model.service_id
         service_event_name = service_id.hyphenize()
 
-        # First, we load the entire retry config for all services,
-        # then pull out just the information we need.
         original_config = self._loader.load_data('_retry')
         if not original_config:
             return
@@ -211,9 +185,7 @@ class AioClientCreator(ClientCreator):
 
     def _register_endpoint_discovery(self, client, endpoint_url, config):
         if endpoint_url is not None:
-            # Don't register any handlers in the case of a custom endpoint url
             return
-        # Only attach handlers if the service supports discovery
         if client.meta.service_model.endpoint_discovery_operation is None:
             return
         events = client.meta.events
@@ -287,8 +259,6 @@ class AioClientCreator(ClientCreator):
         endpoints_ruleset_data,
         partition_data,
     ):
-        # This is a near copy of ClientCreator. What's replaced
-        # is ClientArgsCreator->AioClientArgsCreator
         args_creator = AioClientArgsCreator(
             self._event_emitter,
             self._user_agent,
@@ -316,19 +286,9 @@ class AioClientCreator(ClientCreator):
 
 class AioBaseClient(BaseClient):
     async def _async_getattr(self, item):
-        event_name = (
-            f'getattr.{self._service_model.service_id.hyphenize()}.{item}'
-        )
-        handler, event_response = await self.meta.events.emit_until_response(
-            event_name, client=self
-        )
-
-        return event_response
+        pass
 
     def __getattr__(self, item):
-        # NOTE: we can not reliably support this because if we were to make this a
-        # deferred attrgetter (See #803), it would resolve in hasattr always returning
-        # true.  This ends up breaking ddtrace for example when it tries to set a pin.
         raise AttributeError(
             f"'{self.__class__.__name__}' object has no attribute '{item}'"
         )
@@ -339,118 +299,12 @@ class AioBaseClient(BaseClient):
 
     @with_current_context()
     async def _make_api_call(self, operation_name, api_params):
-        operation_model = self._service_model.operation_model(operation_name)
-        service_name = self._service_model.service_name
-        history_recorder.record(
-            'API_CALL',
-            {
-                'service': service_name,
-                'operation': operation_name,
-                'params': api_params,
-            },
-        )
-        if operation_model.deprecated:
-            logger.debug(
-                'Warning: %s.%s() is deprecated', service_name, operation_name
-            )
-        # If the operation has the `auth` property and the client has a
-        # configured auth scheme preference, use both to compute the
-        # auth type. Otherwise, fallback to auth/auth_type resolution.
-        if operation_model.auth and self.meta.config.auth_scheme_preference:
-            preferred_schemes = self.meta.config.auth_scheme_preference.split(
-                ','
-            )
-            auth_type = resolve_auth_scheme_preference(
-                preferred_schemes, operation_model.auth
-            )
-        else:
-            auth_type = operation_model.resolved_auth_type
-        request_context = {
-            'client_region': self.meta.region_name,
-            'client_config': self.meta.config,
-            'has_streaming_input': operation_model.has_streaming_input,
-            'auth_type': auth_type,
-            'unsigned_payload': operation_model.unsigned_payload,
-            'auth_options': self._service_model.metadata.get('auth'),
-        }
-
-        api_params = await self._emit_api_params(
-            api_params=api_params,
-            operation_model=operation_model,
-            context=request_context,
-        )
-        (
-            endpoint_url,
-            additional_headers,
-            properties,
-        ) = await self._resolve_endpoint_ruleset(
-            operation_model, api_params, request_context
-        )
-        if properties:
-            # Pass arbitrary endpoint info with the Request
-            # for use during construction.
-            request_context['endpoint_properties'] = properties
-        request_dict = await self._convert_to_request_dict(
-            api_params=api_params,
-            operation_model=operation_model,
-            endpoint_url=endpoint_url,
-            context=request_context,
-            headers=additional_headers,
-        )
-        resolve_checksum_context(request_dict, operation_model, api_params)
-
-        service_id = self._service_model.service_id.hyphenize()
-        handler, event_response = await self.meta.events.emit_until_response(
-            f'before-call.{service_id}.{operation_name}',
-            model=operation_model,
-            params=request_dict,
-            request_signer=self._request_signer,
-            context=request_context,
-        )
-
-        if event_response is not None:
-            http, parsed_response = event_response
-        else:
-            maybe_compress_request(
-                self.meta.config, request_dict, operation_model
-            )
-            apply_request_checksum(request_dict)
-            http, parsed_response = await self._make_request(
-                operation_model, request_dict, request_context
-            )
-
-        await self.meta.events.emit(
-            f'after-call.{service_id}.{operation_name}',
-            http_response=http,
-            parsed=parsed_response,
-            model=operation_model,
-            context=request_context,
-        )
-
-        if http.status_code >= 300:
-            error_info = parsed_response.get("Error", {})
-            error_code = request_context.get(
-                'error_code_override'
-            ) or error_info.get("Code")
-            error_class = self.exceptions.from_code(error_code)
-            raise error_class(parsed_response, operation_name)
-        else:
-            return parsed_response
+        pass
 
     async def _make_request(
         self, operation_model, request_dict, request_context
     ):
-        try:
-            return await self._endpoint.make_request(
-                operation_model, request_dict
-            )
-        except Exception as e:
-            await self.meta.events.emit(
-                f'after-call-error.{self._service_model.service_id.hyphenize()}.{operation_model.name}',
-                exception=e,
-                context=request_context,
-            )
-            raise
+        pass
 
     async def _convert_to_request_dict(
         self,
@@ -481,13 +335,8 @@ class AioBaseClient(BaseClient):
         return request_dict
 
     async def _emit_api_params(self, api_params, operation_model, context):
-        # Given the API params provided by the user and the operation_model
-        # we can serialize the request to a request_dict.
         operation_name = operation_model.name
 
-        # Emit an event that allows users to modify the parameters at the
-        # beginning of the method. It allows handlers to modify existing
-        # parameters or return a new set of parameters to use.
         service_id = self._service_model.service_id.hyphenize()
         responses = await self.meta.events.emit(
             f'provide-client-params.{service_id}.{operation_name}',
@@ -539,8 +388,6 @@ class AioBaseClient(BaseClient):
             endpoint_url = endpoint_info.url
             additional_headers = endpoint_info.headers
             endpoint_properties = endpoint_info.properties
-            # If authSchemes is present, overwrite default auth type and
-            # signing context derived from service model.
             auth_schemes = endpoint_info.properties.get('authSchemes')
             if auth_schemes is not None:
                 auth_info = self._ruleset_resolver.auth_schemes_to_signing_ctx(
@@ -558,72 +405,8 @@ class AioBaseClient(BaseClient):
         return endpoint_url, additional_headers, endpoint_properties
 
     def get_paginator(self, operation_name):
-        """Create a paginator for an operation.
+        pass
 
-        :type operation_name: string
-        :param operation_name: The operation name.  This is the same name
-            as the method name on the client.  For example, if the
-            method name is ``create_foo``, and you'd normally invoke the
-            operation as ``client.create_foo(**kwargs)``, if the
-            ``create_foo`` operation can be paginated, you can use the
-            call ``client.get_paginator("create_foo")``.
-
-        :raise OperationNotPageableError: Raised if the operation is not
-            pageable.  You can use the ``client.can_paginate`` method to
-            check if an operation is pageable.
-
-        :rtype: ``botocore.paginate.Paginator``
-        :return: A paginator object.
-
-        """
-        if not self.can_paginate(operation_name):
-            raise OperationNotPageableError(operation_name=operation_name)
-        else:
-            actual_operation_name = self._PY_TO_OP_NAME[operation_name]
-
-            # Create a new paginate method that will serve as a proxy to
-            # the underlying Paginator.paginate method. This is needed to
-            # attach a docstring to the method.
-            def paginate(self, **kwargs):
-                return AioPaginator.paginate(self, **kwargs)
-
-            paginator_config = self._cache['page_config'][
-                actual_operation_name
-            ]
-            # Add the docstring for the paginate method.
-            paginate.__doc__ = PaginatorDocstring(
-                paginator_name=actual_operation_name,
-                event_emitter=self.meta.events,
-                service_model=self.meta.service_model,
-                paginator_config=paginator_config,
-                include_signature=False,
-            )
-
-            # Rename the paginator class based on the type of paginator.
-            service_module_name = get_service_module_name(
-                self.meta.service_model
-            )
-            paginator_class_name = (
-                f"{service_module_name}.Paginator.{actual_operation_name}"
-            )
-
-            # Create the new paginator class
-            documented_paginator_cls = type(
-                paginator_class_name, (AioPaginator,), {'paginate': paginate}
-            )
-
-            operation_model = self._service_model.operation_model(
-                actual_operation_name
-            )
-            paginator = documented_paginator_cls(
-                getattr(self, operation_name),
-                paginator_config,
-                operation_model,
-            )
-            return paginator
-
-    # NOTE: this method does not differ from botocore, however it's important to keep
-    #   as the "waiter" value points to our own asyncio waiter module
     def get_waiter(self, waiter_name):
         """Returns an object that can wait for some condition.
 

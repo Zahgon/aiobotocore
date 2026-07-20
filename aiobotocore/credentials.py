@@ -146,21 +146,6 @@ def create_credential_resolver(session, cache=None, region_name=None):
     providers = pre_profile + profile_providers + post_profile
 
     if disable_env_vars:
-        # An explicitly provided profile will negate an EnvProvider.
-        # We will defer to providers that understand the "profile"
-        # concept to retrieve credentials.
-        # The one edge case if is all three values are provided via
-        # env vars:
-        # export AWS_ACCESS_KEY_ID=foo
-        # export AWS_SECRET_ACCESS_KEY=bar
-        # export AWS_PROFILE=baz
-        # Then, just like our client() calls, the explicit credentials
-        # will take precedence.
-        #
-        # This precedence is enforced by leaving the EnvProvider in the chain.
-        # This means that the only way a "profile" would win is if the
-        # EnvProvider does not return credentials, which is what we want
-        # in this scenario.
         providers.remove(env_provider)
         logger.debug(
             'Skipping environment variable credential check'
@@ -173,57 +158,22 @@ def create_credential_resolver(session, cache=None, region_name=None):
 
 class AioProfileProviderBuilder(ProfileProviderBuilder):
     def _create_process_provider(self, profile_name):
-        return AioProcessProvider(
-            profile_name=profile_name,
-            load_config=lambda: self._session.full_config,
-        )
+        pass
 
     def _create_shared_credential_provider(self, profile_name):
-        credential_file = self._session.get_config_variable('credentials_file')
-        return AioSharedCredentialProvider(
-            profile_name=profile_name,
-            creds_filename=credential_file,
-        )
+        pass
 
     def _create_config_provider(self, profile_name):
-        config_file = self._session.get_config_variable('config_file')
-        return AioConfigProvider(
-            profile_name=profile_name,
-            config_filename=config_file,
-        )
+        pass
 
     def _create_web_identity_provider(self, profile_name, disable_env_vars):
-        return AioAssumeRoleWithWebIdentityProvider(
-            load_config=lambda: self._session.full_config,
-            client_creator=_get_client_creator(
-                self._session, self._region_name
-            ),
-            cache=self._cache,
-            profile_name=profile_name,
-            disable_env_vars=disable_env_vars,
-        )
+        pass
 
     def _create_sso_provider(self, profile_name):
-        return AioSSOProvider(
-            load_config=lambda: self._session.full_config,
-            client_creator=self._session.create_client,
-            profile_name=profile_name,
-            cache=self._cache,
-            token_cache=self._sso_token_cache,
-            token_provider=AioSSOTokenProvider(
-                self._session,
-                cache=self._sso_token_cache,
-                profile_name=profile_name,
-            ),
-        )
+        pass
 
     def _create_login_provider(self, profile_name):
-        return AioLoginProvider(
-            load_config=lambda: self._session.full_config,
-            client_creator=self._session.create_client,
-            profile_name=profile_name,
-            token_cache=self._login_token_cache,
-        )
+        pass
 
 
 async def get_credentials(session):
@@ -232,20 +182,7 @@ async def get_credentials(session):
 
 
 def create_assume_role_refresher(client, params):
-    async def refresh():
-        async with client as sts:
-            response = await sts.assume_role(**params)
-        credentials = response['Credentials']
-        # We need to normalize the credential names to
-        # the values expected by the refresh creds.
-        return {
-            'access_key': credentials['AccessKeyId'],
-            'secret_key': credentials['SecretAccessKey'],
-            'token': credentials['SessionToken'],
-            'expiry_time': _serialize_if_needed(credentials['Expiration']),
-        }
-
-    return refresh
+    pass
 
 
 def create_mfa_serial_refresher(actual_refresh):
@@ -255,34 +192,26 @@ def create_mfa_serial_refresher(actual_refresh):
             self._has_been_called = False
 
         async def call(self):
-            if self._has_been_called:
-                # We can explore an option in the future to support
-                # reprompting for MFA, but for now we just error out
-                # when the temp creds expire.
-                raise RefreshWithMFAUnsupportedError()
-            self._has_been_called = True
-            return await self._refresh()
+            pass
 
     return _Refresher(actual_refresh).call
 
 
-# TODO: deprecate
 create_aio_mfa_serial_refresher = create_mfa_serial_refresher
 
 
 class AioCredentials(Credentials):
-    # Overrides for property accessors
     def get_account_id(self):
-        return self.account_id
+        pass
 
     def get_access_key(self):
-        return self.access_key
+        pass
 
     def get_secret_key(self):
-        return self.secret_key
+        pass
 
     def get_token(self):
-        return self.token
+        pass
 
     async def get_frozen_credentials(self):
         return ReadOnlyCredentials(
@@ -296,80 +225,53 @@ class AioRefreshableCredentials(RefreshableCredentials):
         self._refresh_lock = asyncio.Lock()
 
     async def get_account_id(self):
-        await self._refresh()
-        return self._account_id
+        pass
 
     async def get_access_key(self):
-        await self._refresh()
-        return self._access_key
+        pass
 
     async def get_secret_key(self):
-        await self._refresh()
-        return self._secret_key
+        pass
 
     async def get_token(self):
-        await self._refresh()
-        return self._token
+        pass
 
-    # Redeclaring the properties so it doesn't call refresh
-    # Have to redeclare setter as we're overriding the getter
     @property
     def access_key(self):
-        # TODO: this needs to be resolved
-        raise NotImplementedError(
-            "missing call to self._refresh. "
-            "Use get_frozen_credentials or get_access_key"
-        )
-        return self._access_key
+        pass
 
     @access_key.setter
     def access_key(self, value):
-        self._access_key = value
+        pass
 
     @property
     def secret_key(self):
-        # TODO: this needs to be resolved
-        raise NotImplementedError(
-            "missing call to self._refresh. "
-            "Use get_frozen_credentials or get_secret_key instead"
-        )
-        return self._secret_key
+        pass
 
     @secret_key.setter
     def secret_key(self, value):
-        self._secret_key = value
+        pass
 
     @property
     def token(self):
-        # TODO: this needs to be resolved
-        raise NotImplementedError(
-            "missing call to self._refresh. "
-            "Use get_frozen_credentials or get_token instead"
-        )
-        return self._token
+        pass
 
     @token.setter
     def token(self, value):
-        self._token = value
+        pass
 
     @property
     def account_id(self):
-        # TODO: this needs to be resolved
-        raise NotImplementedError(
-            "missing call to self._refresh. "
-            "Use get_frozen_credentials or get_account_id instead"
-        )
-        return self._account_id
+        pass
 
     @account_id.setter
     def account_id(self, value):
-        self._account_id = value
+        pass
 
     async def _refresh(self):
         if not self.refresh_needed(self._advisory_refresh_timeout):
             return
 
-        # By this point we need a refresh but its not critical
         if not self._refresh_lock.locked():
             async with self._refresh_lock:
                 if not self.refresh_needed(self._advisory_refresh_timeout):
@@ -382,17 +284,13 @@ class AioRefreshableCredentials(RefreshableCredentials):
                 )
                 return
         elif self.refresh_needed(self._mandatory_refresh_timeout):
-            # If we're here, we absolutely need a refresh and the
-            # lock is held so wait for it
             async with self._refresh_lock:
-                # Might have refreshed by now
                 if not self.refresh_needed(self._mandatory_refresh_timeout):
                     return
                 await self._protected_refresh(is_mandatory=True)
 
     async def _protected_refresh(self, is_mandatory):
         try:
-            # AioEnvProvider._create_credentials_fetcher is not and does not need async
             metadata = await resolve_awaitable(self._refresh_using())
         except Exception:
             period_name = 'mandatory' if is_mandatory else 'advisory'
@@ -403,13 +301,7 @@ class AioRefreshableCredentials(RefreshableCredentials):
                 exc_info=True,
             )
             if is_mandatory:
-                # If this is a mandatory refresh, then
-                # all errors that occur when we attempt to refresh
-                # credentials are propagated back to the user.
                 raise
-            # Otherwise we'll just return.
-            # The end result will be that we'll use the current
-            # set of temporary credentials we have.
             return
         self._set_from_data(metadata)
         self._frozen_credentials = ReadOnlyCredentials(
@@ -449,32 +341,10 @@ class AioCachedCredentialFetcher(CachedCredentialFetcher):
         raise NotImplementedError('_get_credentials()')
 
     async def fetch_credentials(self):
-        return await self._get_cached_credentials()
+        pass
 
     async def _get_cached_credentials(self):
-        """Get up-to-date credentials.
-
-        This will check the cache for up-to-date credentials, calling assume
-        role if none are available.
-        """
-        response = self._load_from_cache()
-        if response is None:
-            response = await self._get_credentials()
-            self._write_to_cache(response)
-        else:
-            logger.debug("Credentials for role retrieved from cache.")
-
-        creds = response['Credentials']
-        expiration = _serialize_if_needed(creds['Expiration'], iso=True)
-        credentials = {
-            'access_key': creds['AccessKeyId'],
-            'secret_key': creds['SecretAccessKey'],
-            'token': creds['SessionToken'],
-            'expiry_time': expiration,
-            'account_id': creds.get('AccountId'),
-        }
-
-        return credentials
+        pass
 
 
 class AioBaseAssumeRoleCredentialFetcher(
@@ -535,8 +405,6 @@ class AioAssumeRoleWithWebIdentityCredentialFetcher(
         """Get credentials by calling assume role."""
         register_feature_ids(self.feature_ids)
         kwargs = self._assume_role_kwargs()
-        # Assume role with web identity does not require credentials other than
-        # the token, explicitly configure the client to not sign requests.
         config = AioConfig(signature_version=UNSIGNED)
         async with self._client_creator('sts', config=config) as client:
             response = await client.assume_role_with_web_identity(**kwargs)
@@ -553,10 +421,7 @@ class AioAssumeRoleWithWebIdentityCredentialFetcher(
 
 
 def _run_credential_process_sync(process_list):
-    # Synchronous fallback for event loops that don't implement
-    # subprocess transports. Caller runs this via ``asyncio.to_thread``.
-    p = subprocess.run(process_list, capture_output=True, check=False)
-    return p.stdout, p.stderr, p.returncode
+    pass
 
 
 class AioProcessProvider(ProcessProvider):
@@ -587,8 +452,6 @@ class AioProcessProvider(ProcessProvider):
         )
 
     async def _retrieve_credentials_using(self, credential_process):
-        # We're not using shell=True, so we need to pass the
-        # command and all arguments as a list.
         process_list = compat_shell_split(credential_process)
         try:
             p = await self._popen(
@@ -597,12 +460,6 @@ class AioProcessProvider(ProcessProvider):
             stdout, stderr = await p.communicate()
             returncode = p.returncode
         except NotImplementedError:
-            # Some event loops don't implement subprocess transports —
-            # notably ``asyncio.SelectorEventLoop`` on Windows, which
-            # users select when integrating with libraries that don't
-            # support the Proactor loop (e.g. ``psycopg``). Fall back
-            # to running the credential process synchronously in a
-            # worker thread so the loop stays unblocked. (#1415)
             stdout, stderr, returncode = await asyncio.to_thread(
                 _run_credential_process_sync, process_list
             )
@@ -699,7 +556,6 @@ class AioOriginalEC2Provider(OriginalEC2Provider):
                 logger.info('Found credentials in AWS_CREDENTIAL_FILE.')
                 access_key = creds[self.ACCESS_KEY]
                 secret_key = creds[self.SECRET_KEY]
-                # EC2 creds file doesn't support session tokens.
                 return AioCredentials(
                     access_key, secret_key, method=self.METHOD
                 )
@@ -775,7 +631,6 @@ class AioBotoProvider(BotoProvider):
             try:
                 config = self._ini_parser(filename)
             except ConfigNotFound:
-                # Move on to the next potential config file name.
                 continue
             if 'Credentials' in config:
                 credentials = config['Credentials']
@@ -794,9 +649,6 @@ class AioBotoProvider(BotoProvider):
 
 class AioAssumeRoleProvider(AssumeRoleProvider):
     async def load(self):
-        # Reset visited profiles on each load() call to avoid false positives
-        # when multiple async tasks concurrently call load() on the same provider
-        # instance and one task's _visited_profiles state leaks into another.
         self._visited_profiles = [self._profile_name]
         self._loaded_config = self._load_config()
         profiles = self._loaded_config.get('profiles', {})
@@ -842,9 +694,6 @@ class AioAssumeRoleProvider(AssumeRoleProvider):
 
         self._feature_ids.add('CREDENTIALS_STS_ASSUME_ROLE')
         register_feature_ids(self._feature_ids)
-        # The initial credentials are empty and the expiration time is set
-        # to now so that we can delay the call to assume role until it is
-        # strictly needed.
         return AioDeferredRefreshableCredentials(
             method=self.METHOD,
             refresh_using=refresher,
@@ -872,10 +721,6 @@ class AioAssumeRoleProvider(AssumeRoleProvider):
             self._has_static_credentials(profile)
             and not self._profile_provider_builder
         ):
-            # This is only here for backwards compatibility. If this provider
-            # isn't given a profile provider builder we still want to be able
-            # to handle the basic static credential case as we would before the
-            # profile provider builder parameter was added.
             return self._resolve_static_credentials_from_profile(profile)
         elif self._has_static_credentials(
             profile
@@ -966,9 +811,6 @@ class AioAssumeRoleWithWebIdentityProvider(AssumeRoleWithWebIdentityProvider):
 
         self._feature_ids.add('CREDENTIALS_STS_ASSUME_ROLE_WEB_ID')
         register_feature_ids(self._feature_ids)
-        # The initial credentials are empty and the expiration time is set
-        # to now so that we can delay the call to assume role until it is
-        # strictly needed.
         return AioDeferredRefreshableCredentials(
             method=self.METHOD,
             refresh_using=fetcher.fetch_credentials,
@@ -1002,25 +844,12 @@ class AioCanonicalNameCredentialSourcer(CanonicalNameCredentialSourcer):
         """
         provider = self._get_provider_by_canonical_name(canonical_name)
 
-        # The AssumeRole provider should really be part of the SharedConfig
-        # provider rather than being its own thing, but it is not. It is
-        # effectively part of both the SharedConfig provider and the
-        # SharedCredentials provider now due to the way it behaves.
-        # Therefore if we want either of those providers we should return
-        # the AssumeRole provider with it.
         if canonical_name.lower() in ['sharedconfig', 'sharedcredentials']:
             assume_role_provider = self._get_provider_by_method('assume-role')
             if assume_role_provider is not None:
-                # The SharedConfig or SharedCredentials provider may not be
-                # present if it was removed for some reason, but the
-                # AssumeRole provider could still be present. In that case,
-                # return the assume role provider by itself.
                 if provider is None:
                     return assume_role_provider
 
-                # If both are present, return them both as a
-                # CredentialResolver so that calling code can treat them as
-                # a single entity.
                 return AioCredentialResolver([assume_role_provider, provider])
 
         if provider is None:
@@ -1033,7 +862,6 @@ class AioContainerProvider(ContainerProvider):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # This will always run if no fetcher arg is provided
         if isinstance(self._fetcher, ContainerMetadataFetcher):
             self._fetcher = AioContainerMetadataFetcher()
 
@@ -1060,26 +888,7 @@ class AioContainerProvider(ContainerProvider):
 
     def _create_fetcher(self, full_uri, *args, **kwargs):
         async def fetch_creds():
-            try:
-                headers = self._build_headers()
-                response = await self._fetcher.retrieve_full_uri(
-                    full_uri, headers=headers
-                )
-                register_feature_id('CREDENTIALS_HTTP')
-            except MetadataRetrievalError as e:
-                logger.debug(
-                    "Error retrieving container metadata: %s", e, exc_info=True
-                )
-                raise CredentialRetrievalError(
-                    provider=self.METHOD, error_msg=str(e)
-                )
-            return {
-                'access_key': response['AccessKeyId'],
-                'secret_key': response['SecretAccessKey'],
-                'token': response['Token'],
-                'expiry_time': response['Expiration'],
-                'account_id': response.get('AccountId'),
-            }
+            pass
 
         return fetch_creds
 
@@ -1090,19 +899,12 @@ class AioCredentialResolver(CredentialResolver):
         Goes through the credentials chain, returning the first ``Credentials``
         that could be loaded.
         """
-        # First provider to return a non-None response wins.
         for provider in self.providers:
             logger.debug("Looking for credentials via: %s", provider.METHOD)
             creds = await provider.load()
             if creds is not None:
                 return creds
 
-        # If we got here, no credentials could be found.
-        # This feels like it should be an exception, but historically, ``None``
-        # is returned.
-        #
-        # +1
-        # -js
         return None
 
 
@@ -1123,9 +925,6 @@ class AioSSOCredentialFetcher(
                 token_dict = self._token_loader(self._start_url)
                 token = token_dict['accessToken']
 
-                # raise an UnauthorizedSSOTokenError if the loaded legacy token
-                # is expired to save a call to GetRoleCredentials with an
-                # expired token.
                 expiration = dateutil.parser.parse(token_dict['expiresAt'])
                 remaining = total_seconds(expiration - self._time_fetcher())
                 if remaining <= 0:
@@ -1198,87 +997,7 @@ class AioSSOProvider(SSOProvider):
 
 class AioLoginCredentialFetcher(LoginCredentialFetcher):
     async def refresh_credentials(self):
-        """Refreshes login credentials, including saving them to the cache."""
-        if self.feature_ids:
-            register_feature_ids(self.feature_ids)
-        # Reload the token from disk, we need the refresh info
-        token = self._token_loader.load_token(self._session_name)
-        private_key = self._load_private_key(token)
-
-        # Check if token has already been refreshed and is still valid
-        if (
-            token
-            and 'accessToken' in token
-            and 'expiresAt' in token['accessToken']
-        ):
-            expiry_time = _parse_if_needed(token['accessToken']['expiresAt'])
-            remaining_time = total_seconds(expiry_time - self._time_fetcher())
-            if remaining_time > self._REFRESH_THRESHOLD:
-                return self._token_to_credentials(token)
-
-        config = AioConfig(
-            signature_version=botocore.UNSIGNED,
-        )
-        async with self._client_creator(
-            'signin',
-            config=config,
-        ) as client:
-            client.meta.events.register(
-                'before-call.signin.CreateOAuth2Token',
-                _build_add_dpop_header_handler(private_key),
-            )
-
-            try:
-                response = await client.create_o_auth2_token(
-                    tokenInput={
-                        'clientId': token['clientId'],
-                        'refreshToken': token['refreshToken'],
-                        'grantType': 'refresh_token',
-                    },
-                )
-            except client.exceptions.AccessDeniedException as e:
-                error_type = e.response.get('error', '')
-                if error_type in ('TOKEN_EXPIRED', 'USER_CREDENTIALS_CHANGED'):
-                    raise LoginRefreshRequired() from e
-                elif error_type == 'INSUFFICIENT_PERMISSIONS':
-                    raise LoginInsufficientPermissions() from e
-                raise LoginError() from e
-
-            if response is None or 'tokenOutput' not in response:
-                raise LoginTokenLoadError(
-                    error_msg=(
-                        "Unable to refresh access token due to an invalid service response. "
-                        "Please try running 'aws login' again. If the issue persists, there "
-                        "may be a temporary signin service problem."
-                    )
-                )
-
-        output = response.get('tokenOutput')
-
-        expires_timestamp = self._time_fetcher().astimezone(
-            tzutc()
-        ) + datetime.timedelta(seconds=output['expiresIn'])
-
-        # Overwrite token with refreshed fields
-        token.update(
-            {
-                'accessToken': {
-                    'accessKeyId': output['accessToken']['accessKeyId'],
-                    'secretAccessKey': output['accessToken'][
-                        'secretAccessKey'
-                    ],
-                    'sessionToken': output['accessToken']['sessionToken'],
-                    'accountId': token['accessToken']['accountId'],
-                    'expiresAt': expires_timestamp.strftime(
-                        '%Y-%m-%dT%H:%M:%SZ'
-                    ),
-                },
-                'refreshToken': output['refreshToken'],
-            }
-        )
-        self._token_loader.save_token(self._session_name, token)
-
-        return self._token_to_credentials(token)
+        pass
 
 
 class AioLoginProvider(LoginProvider):
@@ -1309,8 +1028,6 @@ class AioLoginProvider(LoginProvider):
 
         register_feature_ids(self._feature_ids)
 
-        # Return the current cached credentials initially,
-        # regardless if they're expired
         cached_credentials = fetcher.load_cached_credentials()
 
         return AioRefreshableCredentials(
@@ -1333,10 +1050,6 @@ def _get_client_creator(session, region_name):
     """
 
     def client_creator(service_name, **kwargs):
-        create_client_kwargs = {'region_name': region_name}
-        create_client_kwargs.update(**kwargs)
-        return create_nested_client(
-            session, service_name, **create_client_kwargs
-        )
+        pass
 
     return client_creator

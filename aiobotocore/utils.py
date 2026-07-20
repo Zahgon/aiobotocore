@@ -54,7 +54,6 @@ class _RefCountedSession(aiobotocore.httpsession.AIOHTTPSession):
         if not self.__lock:
             self.__lock = asyncio.Lock()
 
-        # ensure we have a session
         async with self.__lock:
             self.__ref_count += 1
 
@@ -188,34 +187,18 @@ class AioIMDSFetcher(IMDSFetcher):
         raise self._RETRIES_EXCEEDED_ERROR_CLS()
 
     async def _default_retry(self, response):
-        return await self._is_non_ok_response(
-            response
-        ) or await self._is_empty(response)
+        pass
 
     async def _is_non_ok_response(self, response):
-        if response.status_code != 200:
-            await self._log_imds_response(response, 'non-200', log_body=True)
-            return True
-        return False
+        pass
 
     async def _is_empty(self, response):
-        if not await response.content:
-            await self._log_imds_response(response, 'no body', log_body=True)
-            return True
-        return False
+        pass
 
     async def _log_imds_response(
         self, response, reason_to_log, log_body=False
     ):
-        statement = (
-            "Metadata service returned %s response "
-            "with status code of %s for url: %s"
-        )
-        logger_args = [reason_to_log, response.status_code, response.url]
-        if log_body:
-            statement += ", content body: %s"
-            logger_args.append(await response.content)
-        logger.debug(statement, *logger_args)
+        pass
 
 
 class AioInstanceMetadataFetcher(AioIMDSFetcher, InstanceMetadataFetcher):
@@ -270,24 +253,13 @@ class AioInstanceMetadataFetcher(AioIMDSFetcher, InstanceMetadataFetcher):
         return json.loads(await r.text)
 
     async def _is_invalid_json(self, response):
-        try:
-            json.loads(await response.text)
-            return False
-        except ValueError:
-            await self._log_imds_response(response, 'invalid json')
-            return True
+        pass
 
     async def _needs_retry_for_role_name(self, response):
-        return await self._is_non_ok_response(
-            response
-        ) or await self._is_empty(response)
+        pass
 
     async def _needs_retry_for_credentials(self, response):
-        return (
-            await self._is_non_ok_response(response)
-            or await self._is_empty(response)
-            or await self._is_invalid_json(response)
-        )
+        pass
 
 
 class AioIMDSRegionProvider(IMDSRegionProvider):
@@ -376,25 +348,12 @@ class AioS3ExpressIdentityCache(AioIdentityCache, S3ExpressIdentityCache):
         return asyncio.create_task(super().get_credentials(bucket=bucket))
 
     async def get_credentials(self, bucket):
-        # upstream uses `@functools.lru_cache(maxsize=100)` to cache credentials.
-        # This is incompatible with async code.
-        # We need to implement custom caching logic.
 
         return await self._get_credentials(bucket=bucket)
 
     def build_refresh_callback(self, bucket):
         async def refresher():
-            response = await self._client.create_session(Bucket=bucket)
-            creds = response['Credentials']
-            expiration = self._serialize_if_needed(
-                creds['Expiration'], iso=True
-            )
-            return {
-                "access_key": creds['AccessKeyId'],
-                "secret_key": creds['SecretAccessKey'],
-                "token": creds['SessionToken'],
-                "expiry_time": expiration,
-            }
+            pass
 
         return refresher
 
@@ -416,272 +375,20 @@ class AioS3RegionRedirectorv2(S3RegionRedirectorv2):
         operation,
         **kwargs,
     ):
-        """
-        An S3 request sent to the wrong region will return an error that
-        contains the endpoint the request should be sent to. This handler
-        will add the redirect information to the signing context and then
-        redirect the request.
-        """
-        if response is None:
-            # This could be none if there was a ConnectionError or other
-            # transport error.
-            return
-
-        redirect_ctx = request_dict.get('context', {}).get('s3_redirect', {})
-        if ArnParser.is_arn(redirect_ctx.get('bucket')):
-            logger.debug(
-                'S3 request was previously for an Accesspoint ARN, not '
-                'redirecting.'
-            )
-            return
-
-        if redirect_ctx.get('redirected'):
-            logger.debug(
-                'S3 request was previously redirected, not redirecting.'
-            )
-            return
-
-        error = response[1].get('Error', {})
-        error_code = error.get('Code')
-        response_metadata = response[1].get('ResponseMetadata', {})
-
-        # We have to account for 400 responses because
-        # if we sign a Head* request with the wrong region,
-        # we'll get a 400 Bad Request but we won't get a
-        # body saying it's an "AuthorizationHeaderMalformed".
-        is_special_head_object = (
-            error_code in ('301', '400') and operation.name == 'HeadObject'
-        )
-        is_special_head_bucket = (
-            error_code in ('301', '400')
-            and operation.name == 'HeadBucket'
-            and 'x-amz-bucket-region'
-            in response_metadata.get('HTTPHeaders', {})
-        )
-        is_wrong_signing_region = (
-            error_code == 'AuthorizationHeaderMalformed' and 'Region' in error
-        )
-        is_redirect_status = response[0] is not None and response[
-            0
-        ].status_code in (301, 302, 307)
-        is_permanent_redirect = error_code == 'PermanentRedirect'
-        is_opt_in_region_redirect = (
-            error_code == 'IllegalLocationConstraintException'
-            and operation.name != 'CreateBucket'
-        )
-        if not any(
-            [
-                is_special_head_object,
-                is_wrong_signing_region,
-                is_permanent_redirect,
-                is_special_head_bucket,
-                is_redirect_status,
-                is_opt_in_region_redirect,
-            ]
-        ):
-            return
-
-        bucket = request_dict['context']['s3_redirect']['bucket']
-        client_region = request_dict['context'].get('client_region')
-        new_region = await self.get_bucket_region(bucket, response)
-
-        if new_region is None:
-            logger.debug(
-                "S3 client configured for region %s but the "
-                "bucket %s is not in that region and the proper region "
-                "could not be automatically determined.",
-                client_region,
-                bucket,
-            )
-            return
-
-        logger.debug(
-            "S3 client configured for region %s but the bucket %s "
-            "is in region %s; Please configure the proper region to "
-            "avoid multiple unnecessary redirects and signing attempts.",
-            client_region,
-            bucket,
-            new_region,
-        )
-        # Adding the new region to _cache will make construct_endpoint() to
-        # use the new region as value for the AWS::Region builtin parameter.
-        self._cache[bucket] = new_region
-
-        # Re-resolve endpoint with new region and modify request_dict with
-        # the new URL, auth scheme, and signing context.
-        ep_resolver = self._client._ruleset_resolver
-        ep_info = await ep_resolver.construct_endpoint(
-            operation_model=operation,
-            call_args=request_dict['context']['s3_redirect']['params'],
-            request_context=request_dict['context'],
-        )
-        request_dict['url'] = self.set_request_url(
-            request_dict['url'], ep_info.url
-        )
-        request_dict['context']['s3_redirect']['redirected'] = True
-        auth_schemes = ep_info.properties.get('authSchemes')
-        if auth_schemes is not None:
-            auth_info = ep_resolver.auth_schemes_to_signing_ctx(auth_schemes)
-            auth_type, signing_context = auth_info
-            request_dict['context']['auth_type'] = auth_type
-            request_dict['context']['signing'] = {
-                **request_dict['context'].get('signing', {}),
-                **signing_context,
-            }
-
-        # Return 0 so it doesn't wait to retry
-        return 0
+        pass
 
     async def get_bucket_region(self, bucket, response):
-        """
-        There are multiple potential sources for the new region to redirect to,
-        but they aren't all universally available for use. This will try to
-        find region from response elements, but will fall back to calling
-        HEAD on the bucket if all else fails.
-        :param bucket: The bucket to find the region for. This is necessary if
-            the region is not available in the error response.
-        :param response: A response representing a service request that failed
-            due to incorrect region configuration.
-        """
-        # First try to source the region from the headers.
-        service_response = response[1]
-        response_headers = service_response['ResponseMetadata']['HTTPHeaders']
-        if 'x-amz-bucket-region' in response_headers:
-            region = response_headers['x-amz-bucket-region']
-        # Next, check the error body
-        elif r := service_response.get('Error', {}).get('Region', None):
-            region = r
-        else:
-            # Finally, HEAD the bucket. No other choice sadly.
-            try:
-                # NOTE: we don't need to aenter/aexit as we have a ref to the base client
-                response = await self._client.head_bucket(Bucket=bucket)
-                headers = response['ResponseMetadata']['HTTPHeaders']
-            except ClientError as e:
-                headers = e.response['ResponseMetadata']['HTTPHeaders']
-            region = headers.get('x-amz-bucket-region', None)
-        validate_region_name(region)
-        return region
+        pass
 
 
 class AioS3RegionRedirector(S3RegionRedirector):
     async def redirect_from_error(
         self, request_dict, response, operation, **kwargs
     ):
-        if response is None:
-            # This could be none if there was a ConnectionError or other
-            # transport error.
-            return
-
-        if self._is_s3_accesspoint(request_dict.get('context', {})):
-            logger.debug(
-                'S3 request was previously to an accesspoint, not redirecting.'
-            )
-            return
-
-        if request_dict.get('context', {}).get('s3_redirected'):
-            logger.debug(
-                'S3 request was previously redirected, not redirecting.'
-            )
-            return
-
-        error = response[1].get('Error', {})
-        error_code = error.get('Code')
-        response_metadata = response[1].get('ResponseMetadata', {})
-
-        # We have to account for 400 responses because
-        # if we sign a Head* request with the wrong region,
-        # we'll get a 400 Bad Request but we won't get a
-        # body saying it's an "AuthorizationHeaderMalformed".
-        is_special_head_object = (
-            error_code in ('301', '400') and operation.name == 'HeadObject'
-        )
-        is_special_head_bucket = (
-            error_code in ('301', '400')
-            and operation.name == 'HeadBucket'
-            and 'x-amz-bucket-region'
-            in response_metadata.get('HTTPHeaders', {})
-        )
-        is_wrong_signing_region = (
-            error_code == 'AuthorizationHeaderMalformed' and 'Region' in error
-        )
-        is_redirect_status = response[0] is not None and response[
-            0
-        ].status_code in (301, 302, 307)
-        is_permanent_redirect = error_code == 'PermanentRedirect'
-        if not any(
-            [
-                is_special_head_object,
-                is_wrong_signing_region,
-                is_permanent_redirect,
-                is_special_head_bucket,
-                is_redirect_status,
-            ]
-        ):
-            return
-
-        bucket = request_dict['context']['signing']['bucket']
-        client_region = request_dict['context'].get('client_region')
-        new_region = await self.get_bucket_region(bucket, response)
-
-        if new_region is None:
-            logger.debug(
-                "S3 client configured for region %s but the bucket %s is not "
-                "in that region and the proper region could not be "
-                "automatically determined.",
-                client_region,
-                bucket,
-            )
-            return
-
-        logger.debug(
-            "S3 client configured for region %s but the bucket %s is in region"
-            " %s; Please configure the proper region to avoid multiple "
-            "unnecessary redirects and signing attempts.",
-            client_region,
-            bucket,
-            new_region,
-        )
-        endpoint = self._endpoint_resolver.resolve('s3', new_region)
-        endpoint = endpoint['endpoint_url']
-
-        signing_context = {
-            'region': new_region,
-            'bucket': bucket,
-            'endpoint': endpoint,
-        }
-        request_dict['context']['signing'] = signing_context
-
-        self._cache[bucket] = signing_context
-        self.set_request_url(request_dict, request_dict['context'])
-
-        request_dict['context']['s3_redirected'] = True
-
-        # Return 0 so it doesn't wait to retry
-        return 0
+        pass
 
     async def get_bucket_region(self, bucket, response):
-        # First try to source the region from the headers.
-        service_response = response[1]
-        response_headers = service_response['ResponseMetadata']['HTTPHeaders']
-        if 'x-amz-bucket-region' in response_headers:
-            return response_headers['x-amz-bucket-region']
-
-        # Next, check the error body
-        region = service_response.get('Error', {}).get('Region', None)
-        if region is not None:
-            return region
-
-        # Finally, HEAD the bucket. No other choice sadly.
-        try:
-            # NOTE: we don't need to aenter/aexit as we have a ref to the base client
-            response = await self._client.head_bucket(Bucket=bucket)
-            headers = response['ResponseMetadata']['HTTPHeaders']
-        except ClientError as e:
-            headers = e.response['ResponseMetadata']['HTTPHeaders']
-
-        region = headers.get('x-amz-bucket-region', None)
-        return region
+        pass
 
 
 class AioContainerMetadataFetcher(ContainerMetadataFetcher):
@@ -696,16 +403,7 @@ class AioContainerMetadataFetcher(ContainerMetadataFetcher):
         return await self._retrieve_credentials(full_url, headers)
 
     async def retrieve_uri(self, relative_uri):
-        """Retrieve JSON metadata from container metadata.
-
-        :type relative_uri: str
-        :param relative_uri: A relative URI, e.g "/foo/bar?id=123"
-
-        :return: The parsed JSON response.
-
-        """
-        full_url = self.full_url(relative_uri)
-        return await self._retrieve_credentials(full_url)
+        pass
 
     async def _retrieve_credentials(self, full_url, extra_headers=None):
         headers = {'Accept': 'application/json'}
@@ -776,14 +474,11 @@ async def create_nested_client(session, service_name, **kwargs):
         async with create_nested_client(session, 'sts', region_name='us-east-1') as client:
             response = await client.assume_role(...)
     """
-    # Set plugin context to disabled
     ctx = PluginContext(plugins="DISABLED")
     token = set_plugin_context(ctx)
 
     try:
-        # Create client context
         async with session.create_client(service_name, **kwargs) as client:
-            # Reset plugin context immediately after client creation, matching botocore behavior
             reset_plugin_context(token)
             token = None
 

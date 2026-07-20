@@ -9,8 +9,4 @@ async def resolve_awaitable(obj):
 
 
 async def async_any(items):
-    for item in items:
-        if await resolve_awaitable(item):
-            return True
-
-    return False
+    pass

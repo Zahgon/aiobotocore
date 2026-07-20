@@ -22,48 +22,10 @@ except ImportError:
 
 class AioAwsChunkedWrapper(AwsChunkedWrapper):
     async def read(self, size=None):
-        # Normalize "read all" size values to None
-        if size is not None and size <= 0:
-            size = None
-
-        # If the underlying body is done and we have nothing left then
-        # end the stream
-        if self._complete and not self._remaining:
-            return b""
-
-        # While we're not done and want more bytes
-        want_more_bytes = size is None or size > len(self._remaining)
-        while not self._complete and want_more_bytes:
-            self._remaining += await self._make_chunk()
-            want_more_bytes = size is None or size > len(self._remaining)
-
-        # If size was None, we want to return everything
-        if size is None:
-            size = len(self._remaining)
-
-        # Return a chunk up to the size asked for
-        to_return = self._remaining[:size]
-        self._remaining = self._remaining[size:]
-        return to_return
+        pass
 
     async def _make_chunk(self):
-        # NOTE: Chunk size is not deterministic as read could return less. This
-        # means we cannot know the content length of the encoded aws-chunked
-        # stream ahead of time without ensuring a consistent chunk size
-
-        raw_chunk = await resolve_awaitable(self._raw.read(self._chunk_size))
-        hex_len = hex(len(raw_chunk))[2:].encode("ascii")
-        self._complete = not raw_chunk
-
-        if self._checksum:
-            self._checksum.update(raw_chunk)
-
-        if self._checksum and self._complete:
-            name = self._checksum_name.encode("ascii")
-            checksum = self._checksum.b64digest().encode("ascii")
-            return b"0\r\n%s:%s\r\n\r\n" % (name, checksum)
-
-        return b"%s\r\n%s\r\n" % (hex_len, raw_chunk)
+        pass
 
     def __aiter__(self):
         return self
@@ -75,46 +37,21 @@ class AioAwsChunkedWrapper(AwsChunkedWrapper):
 
 
 class _ChecksumMixin:
-    """Mixin that adds checksum validation to a StreamingBody.
-
-    Shared by both aiohttp and httpx checksum body classes.
-    """
 
     def _init_checksum(self, checksum, expected):
-        self._checksum = checksum
-        self._expected = expected
+        pass
 
     async def read(self, amt=None):
-        chunk = await super().read(amt=amt)
-        self._checksum.update(chunk)
-        if amt is None or (not chunk and amt > 0):
-            self._validate_checksum()
-        return chunk
+        pass
 
     async def readinto(self, b: bytearray):
-        amount_read = await super().readinto(b)
-
-        if amount_read == len(b):
-            view = b
-        else:
-            view = memoryview(b)[:amount_read]
-
-        self._checksum.update(view)
-        if amount_read == 0 and len(b) > 0:
-            self._validate_checksum()
-        return amount_read
+        pass
 
     def _validate_checksum(self):
-        if self._checksum.digest() != base64.b64decode(self._expected):
-            error_msg = (
-                f"Expected checksum {self._expected} did not match calculated "
-                f"checksum: {self._checksum.b64digest()}"
-            )
-            raise FlexibleChecksumError(error_msg=error_msg)
+        pass
 
 
 class AioStreamingChecksumBody(_ChecksumMixin, AioStreamingBody):
-    """AioStreamingBody with checksum validation (aiohttp backend)."""
 
     def __init__(self, raw_stream, content_length, checksum, expected):
         super().__init__(raw_stream, content_length)
@@ -122,14 +59,12 @@ class AioStreamingChecksumBody(_ChecksumMixin, AioStreamingBody):
 
 
 class AioHttpxStreamingChecksumBody(_ChecksumMixin, AioHttpxStreamingBody):
-    """AioHttpxStreamingBody with checksum validation (httpx backend)."""
 
     def __init__(self, raw_stream, content_length, checksum, expected):
         super().__init__(raw_stream, content_length)
         self._init_checksum(checksum, expected)
 
 
-# Backwards-compatibility aliases for pre-Aio-prefix names.
 StreamingChecksumBody = AioStreamingChecksumBody
 HttpxStreamingChecksumBody = AioHttpxStreamingChecksumBody
 
@@ -161,13 +96,9 @@ async def handle_checksum_body(
 
     for algorithm in algorithms:
         header_name = f"x-amz-checksum-{algorithm}"
-        # If the header is not found, check the next algorithm
         if header_name not in headers:
             continue
 
-        # If a - is in the checksum this is not valid Base64. S3 returns
-        # checksums that include a -# suffix to indicate a checksum derived
-        # from the hash of all part checksums. We cannot wrap this response
         if "-" in headers[header_name]:
             continue
 
@@ -180,7 +111,6 @@ async def handle_checksum_body(
                 http_response, response, algorithm
             )
 
-        # Expose metadata that the checksum check actually occurred
         checksum_context = response["context"].get("checksum", {})
         checksum_context["response_algorithm"] = algorithm
         response["context"]["checksum"] = checksum_context
@@ -216,7 +146,6 @@ def apply_request_checksum(request):
         return
 
     if algorithm == "conditional-md5":
-        # Special case to handle the http checksum required trait
         conditionally_calculate_md5(request)
     elif algorithm["in"] == "header":
         _apply_request_header_checksum(request)
@@ -243,14 +172,10 @@ def _apply_request_trailer_checksum(request):
     body = request["body"]
 
     if location_name in headers:
-        # If the header is already set by the customer, skip calculation
         return
 
-    # Cannot set this as aiohttp complains
     headers["Transfer-Encoding"] = "chunked"
     if "Content-Encoding" in headers:
-        # We need to preserve the existing content encoding and add
-        # aws-chunked as a new content encoding.
         headers["Content-Encoding"] += ",aws-chunked"
     else:
         headers["Content-Encoding"] = "aws-chunked"
@@ -258,14 +183,8 @@ def _apply_request_trailer_checksum(request):
 
     content_length = determine_content_length(body)
     if content_length is None and "Content-Length" in headers:
-        # determine_content_length() cannot resolve the length of non-seekable
-        # bodies, but the caller may have set Content-Length explicitly. Reuse
-        # that value for X-Amz-Decoded-Content-Length before the header is
-        # removed for chunked transfer encoding.
         content_length = int(headers["Content-Length"])
     if content_length is not None:
-        # Send the decoded content length if we can determine it. Some
-        # services such as S3 may require the decoded content length
         headers["X-Amz-Decoded-Content-Length"] = str(content_length)
 
     if "Content-Length" in headers:

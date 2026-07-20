@@ -68,7 +68,6 @@ class HttpxSession:
         else:
             self._connector_args = connector_args
 
-        # TODO: neither this nor AIOHTTPSession handles socket_options
         self._session: httpx.AsyncClient | None = None
         conn_timeout: float | None
         read_timeout: float | None
@@ -111,9 +110,6 @@ class HttpxSession:
         if socket_options is None:
             self._socket_options = []
 
-        # SSL context construction (load_cert_chain / load_verify_locations /
-        # create_urllib3_context's default cert load) does blocking file I/O.
-        # Defer it to __aenter__ so it runs off the event loop. (#1469)
         self._verify: bool | str | SSLContext = verify
         if verify and 'ssl_context' in self._connector_args:
             self._verify = cast(
@@ -121,18 +117,11 @@ class HttpxSession:
             )
 
     def _build_ssl_context(self) -> SSLContext:
-        # Synchronous SSL context construction. Caller runs off the event loop.
-        ssl_context = self._get_ssl_context()
-        ca_certs = get_cert_path(self._verify)
-        if ca_certs:
-            ssl_context.load_verify_locations(ca_certs, None, None)
-        return ssl_context
+        pass
 
     async def __aenter__(self):
         assert not self._session
 
-        # Build the SSL context off the event loop on first entry — only when
-        # verify is truthy and an explicit ssl_context wasn't supplied. (#1469)
         if self._verify is True or isinstance(self._verify, str):
             self._verify = await asyncio.to_thread(self._build_ssl_context)
 
@@ -141,8 +130,6 @@ class HttpxSession:
             keepalive_expiry=self._connector_args['keepalive_timeout'],
         )
 
-        # TODO [httpx]: I put logic here to minimize diff / accidental downstream
-        # consequences - but can probably put this logic in __init__
         if self._cert_file and self._key_file is None:
             cert = self._cert_file
         elif self._cert_file:
@@ -162,10 +149,7 @@ class HttpxSession:
             self._connector = None
 
     def _get_ssl_context(self) -> SSLContext:
-        ssl_context = create_urllib3_context()
-        if self._cert_file:
-            ssl_context.load_cert_chain(self._cert_file, self._key_file)
-        return ssl_context
+        pass
 
     async def close(self) -> None:
         await self.__aexit__(None, None, None)
@@ -177,7 +161,6 @@ class HttpxSession:
             url = request.url
             headers = request.headers
 
-            # currently no support for BOTO_EXPERIMENTAL__ADD_PROXY_HOST_HEADER
             if ensure_boolean(
                 os.environ.get('BOTO_EXPERIMENTAL__ADD_PROXY_HOST_HEADER', '')
             ):
@@ -189,10 +172,8 @@ class HttpxSession:
                 (z[0], _text(z[1], encoding='utf-8')) for z in headers.items()
             )
 
-            # https://github.com/boto/botocore/issues/1255
             headers_['Accept-Encoding'] = 'identity'
 
-            # content can also be https://github.com/ymyzk/tox-gh-actions
             content: AsyncIterable | bytes | bytearray | str | None = None
 
             async def to_async_iterable(stream: Iterable) -> AsyncIterable:
@@ -211,12 +192,6 @@ class HttpxSession:
             else:
                 content = request.body
 
-            # The target gets used as the HTTP target instead of the URL path
-            # it does not get normalized or otherwise processed, which is important
-            # since arbitrary dots and slashes are valid as key paths.
-            # See test_basic_s3.test_non_normalized_key_paths
-            # This way of using it is currently ~undocumented, but recommended in
-            # https://github.com/encode/httpx/discussions/1805#discussioncomment-8975989
             extensions = {"target": bytes(url, encoding='utf-8')}
 
             assert self._session is not None
@@ -229,7 +204,6 @@ class HttpxSession:
                 extensions=extensions,
             )
             assert isinstance(httpx_request.stream, httpx.AsyncByteStream)
-            # auth, follow_redirects
             response = await self._session.send(httpx_request, stream=True)
             response_headers = botocore.compat.HTTPHeaders.from_pairs(
                 response.headers.items()
@@ -243,9 +217,6 @@ class HttpxSession:
             )
 
             if not request.stream_output:
-                # Cause the raw stream to be exhausted immediately. We do it
-                # this way instead of using preload_content because
-                # preload_content will never buffer chunked responses
                 await http_response.content
 
             return http_response

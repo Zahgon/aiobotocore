@@ -3,39 +3,22 @@ from botocore.awsrequest import AWSResponse
 
 
 class AioAWSResponse(AWSResponse):
-    # Unlike AWSResponse, these return awaitables
 
     async def _content_prop(self):
-        """Content of the response as bytes."""
-
-        if self._content is None:
-            # NOTE: this will cache the data in self.raw
-            self._content = await self.raw.read() or b''
-
-        return self._content
+        pass
 
     @property
     def content(self):
-        return self._content_prop()
+        pass
 
     async def _text_prop(self):
-        encoding = botocore.utils.get_encoding_from_headers(self.headers)
-        if encoding:
-            return (await self.content).decode(encoding)
-        else:
-            return (await self.content).decode('utf-8')
+        pass
 
     @property
     def text(self):
-        return self._text_prop()
+        pass
 
 
 class HttpxAWSResponse(AioAWSResponse):
     async def _content_prop(self):
-        """Content of the response as bytes."""
-
-        if self._content is None:
-            # NOTE: this will cache the data in self.raw
-            self._content = await self.raw.aread() or b''
-
-        return self._content
+        pass

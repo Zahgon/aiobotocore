@@ -1,4 +1,3 @@
-"""An async reimplementation of the blocking elements from botocore.retries.bucket."""
 
 import asyncio
 
@@ -7,14 +6,7 @@ from botocore.retries.bucket import Clock as Clock  # reexport # noqa
 
 
 class AsyncTokenBucket:
-    """A reimplementation of TokenBucket that doesn't block."""
 
-    # Most of the code here is pulled straight up from botocore, with slight changes
-    # to the interface to switch to async methods.
-    # This class doesn't inherit from the botocore TokenBucket, as the interface is
-    # different: the `max_rate` setter in the original class is replaced by the
-    # async `set_max_rate`.
-    # (a Python setter can't be async).
 
     _MIN_RATE = 0.5
 
@@ -26,44 +18,25 @@ class AsyncTokenBucket:
         self._last_timestamp = None
         self._min_rate = min_rate
         self._set_max_rate(max_rate)
-        # The main difference between this implementation and the botocore TokenBucket
-        # implementation is replacing a threading.Condition by this asyncio.Condition.
         self._new_fill_rate_condition = asyncio.Condition()
 
     @property
     def max_rate(self):
-        return self._fill_rate
+        pass
 
     async def set_max_rate(self, value):
-        async with self._new_fill_rate_condition:
-            self._set_max_rate(value)
-            self._new_fill_rate_condition.notify()
+        pass
 
     def _set_max_rate(self, value):
-        # Before we can change the rate we need to fill any pending
-        # tokens we might have based on the current rate.  If we don't
-        # do this it means everything since the last recorded timestamp
-        # will accumulate at the rate we're about to set which isn't
-        # correct.
-        self._refill()
-        self._fill_rate = max(value, self._min_rate)
-        if value >= 1:
-            self._max_capacity = value
-        else:
-            self._max_capacity = 1
-        # If we're scaling down, we also can't have a capacity that's
-        # more than our max_capacity.
-        self._current_capacity = min(
-            self._current_capacity, self._max_capacity
-        )
+        pass
 
     @property
     def max_capacity(self):
-        return self._max_capacity
+        pass
 
     @property
     def available_capacity(self):
-        return self._current_capacity
+        pass
 
     async def acquire(self, amount=1, block=True):
         """Acquire token or return amount of time until next token available.
@@ -85,7 +58,6 @@ class AsyncTokenBucket:
         else:
             if not block:
                 raise CapacityNotAvailableError()
-            # Not enough capacity.
             sleep_amount = self._sleep_amount(amount)
             while sleep_amount > 0:
                 try:

@@ -83,57 +83,16 @@ def register_retry_handler(client, max_attempts=None):
 
 class AioRetryHandler(RetryHandler):
     async def needs_retry(self, **kwargs):
-        """Connect as a handler to the needs-retry event."""
-        retry_delay = None
-        context = self._retry_event_adapter.create_retry_context(**kwargs)
-        if await self._retry_policy.should_retry(context):
-            # Before we can retry we need to ensure we have sufficient
-            # capacity in our retry quota.
-            if self._retry_quota.acquire_retry_quota(context):
-                retry_delay = self._retry_policy.compute_retry_delay(context)
-                logger.debug(
-                    "Retry needed, retrying request after delay of: %s",
-                    retry_delay,
-                )
-            else:
-                if NEW_RETRIES_ENABLED:
-                    if self._is_long_polling_operation(context):
-                        polling_delay = self._retry_policy.compute_retry_delay(
-                            context
-                        )
-                        await asyncio.sleep(polling_delay)
-                        logger.debug(
-                            "Retry needed but retry quota reached, "
-                            "not retrying request."
-                        )
-                        self._retry_event_adapter.adapt_retry_response_from_context(
-                            context
-                        )
-                        # Return False (non-None) to prevent any later needs-retry
-                        # handler from returning a delay that would cause
-                        # _needs_retry in endpoint.py to sleep again.
-                        return False
-                logger.debug(
-                    "Retry needed but retry quota reached, "
-                    "not retrying request."
-                )
-        else:
-            logger.debug("Not retrying request.")
-        self._retry_event_adapter.adapt_retry_response_from_context(context)
-        return retry_delay
+        pass
 
 
 class AioRetryPolicy(RetryPolicy):
     async def should_retry(self, context):
-        return await resolve_awaitable(
-            self._retry_checker.is_retryable(context)
-        )
+        pass
 
 
 class AioStandardRetryConditions(StandardRetryConditions):
     def __init__(self, max_attempts=DEFAULT_MAX_ATTEMPTS):  # noqa: E501, lgtm [py/missing-call-to-init]
-        # Note: This class is for convenience so you can have the
-        # standard retry condition in a single class.
         self._max_attempts_checker = MaxAttemptsChecker(max_attempts)
         self._additional_checkers = AioOrRetryChecker(
             [
@@ -150,15 +109,9 @@ class AioStandardRetryConditions(StandardRetryConditions):
         )
 
     async def is_retryable(self, context):
-        return self._max_attempts_checker.is_retryable(
-            context
-        ) and await resolve_awaitable(
-            self._additional_checkers.is_retryable(context)
-        )
+        pass
 
 
 class AioOrRetryChecker(OrRetryChecker):
     async def is_retryable(self, context):
-        return await async_any(
-            checker.is_retryable(context) for checker in self._checkers
-        )
+        pass
